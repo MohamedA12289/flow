@@ -1,0 +1,25 @@
+{
+  "shard": 1,
+  "total_shards": 10,
+  "regions": [
+    "la",
+    "boston",
+    "nashville",
+    "kansascity",
+    "desmoines",
+    "newhampshire",
+    "montana",
+    "anchorage"
+  ],
+  "records": 0,
+  "with_email": 0,
+  "with_phone": 0,
+  "with_both": 0,
+  "grades": {
+    "A": 0,
+    "B": 0,
+    "C": 0,
+    "D": 0
+  },
+  "region_errors": []
+}
