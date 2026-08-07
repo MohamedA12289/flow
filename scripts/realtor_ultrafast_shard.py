@@ -18,12 +18,12 @@ from realtor_shard_export import (
     record_from_element,
 )
 
-ENDPOINTS = [
-    "https://overpass.private.coffee/api/interpreter",
-    "https://overpass.nchc.org.tw/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
+PRIMARY_ENDPOINT = "https://overpass.private.coffee/api/interpreter"
+GLOBAL_FALLBACKS = [
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
 ]
 
 
@@ -42,15 +42,16 @@ out center tags 650;'''
 
 def fetch_region(region: dict[str, Any], shard: int, session: requests.Session):
     radius = min(int(region["radius_m"]), 48_000)
-    ordered = ENDPOINTS[shard % len(ENDPOINTS):] + ENDPOINTS[: shard % len(ENDPOINTS)]
+    fallback = GLOBAL_FALLBACKS[shard % len(GLOBAL_FALLBACKS)]
+    endpoints = [PRIMARY_ENDPOINT, fallback]
     errors: list[str] = []
-    for endpoint in ordered[:2]:
+    for endpoint in endpoints:
         try:
             response = session.post(
                 endpoint,
                 data={"data": query(region, radius)},
                 headers={"User-Agent": USER_AGENT},
-                timeout=(7, 38),
+                timeout=(7, 42),
             )
             response.raise_for_status()
             payload = response.json()
@@ -58,7 +59,8 @@ def fetch_region(region: dict[str, Any], shard: int, session: requests.Session):
             if elements:
                 timestamp = clean((payload.get("osm3s") or {}).get("timestamp_osm_base"))
                 return elements, timestamp, ""
-            errors.append("zero matching elements")
+            remark = clean(payload.get("remark"))
+            errors.append((remark or "zero matching elements")[:350])
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}")
     return [], "", " | ".join(errors)[:700]
@@ -122,7 +124,7 @@ def main():
         writer.writerows(rows)
 
     summary = {
-        "pass": "ultrafast",
+        "pass": "ultrafast-global-endpoints-v2",
         "shard": args.shard,
         "shards": args.shards,
         "regions_assigned": len(selected),
