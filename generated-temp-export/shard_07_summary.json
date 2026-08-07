@@ -1,0 +1,24 @@
+{
+  "shard": 7,
+  "total_shards": 10,
+  "regions": [
+    "miami",
+    "tampa",
+    "columbus",
+    "oklahomacity",
+    "pittsburgh",
+    "mississippi",
+    "southtexas"
+  ],
+  "records": 0,
+  "with_email": 0,
+  "with_phone": 0,
+  "with_both": 0,
+  "grades": {
+    "A": 0,
+    "B": 0,
+    "C": 0,
+    "D": 0
+  },
+  "region_errors": []
+}
