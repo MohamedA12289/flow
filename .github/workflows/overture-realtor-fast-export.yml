@@ -1,0 +1,44 @@
+name: Fast export of Overture real-estate contacts
+
+on:
+  push:
+    branches:
+      - temp-overture-realtor-20260807
+    paths:
+      - "scripts/overture_realtor_fast_export.py"
+      - ".github/workflows/overture-realtor-fast-export.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: temp-overture-realtor-20260807
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check duckdb
+      - name: Export direct-contact records
+        run: python scripts/overture_realtor_fast_export.py
+      - name: Show summary
+        if: always()
+        run: |
+          test -f overture_us_real_estate_contacts_fast_summary.json && cat overture_us_real_estate_contacts_fast_summary.json || true
+          test -f overture_us_real_estate_contacts_fast.csv && wc -l -c overture_us_real_estate_contacts_fast.csv || true
+      - name: Upload fast export
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: overture-us-real-estate-contacts-fast
+          path: |
+            overture_us_real_estate_contacts_fast.csv
+            overture_us_real_estate_contacts_fast_summary.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 9
