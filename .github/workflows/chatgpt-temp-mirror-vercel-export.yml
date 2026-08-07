@@ -1,0 +1,73 @@
+name: ChatGPT temporary mirror of Vercel contact export
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/chatgpt-temp-mirror-vercel-export.yml
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-temp-mirror-vercel-export
+  cancel-in-progress: false
+
+jobs:
+  mirror-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out isolated final-export branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp-final-realtor-export-20260806
+          fetch-depth: 0
+
+      - name: Download and validate Vercel CSV
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p generated-temp-export
+          url="https://national-real-estate-contact-export.vercel.app/national_real_estate_contacts_3000_plus_ranked.csv"
+          stats_url="https://national-real-estate-contact-export.vercel.app/stats.json"
+          tmp="generated-temp-export/national_real_estate_contacts_3000_plus_ranked.csv.tmp"
+          final="generated-temp-export/national_real_estate_contacts_3000_plus_ranked.csv"
+
+          curl --fail --location --retry 8 --retry-delay 20 --max-time 900 \
+            "$url" --output "$tmp"
+          curl --fail --location --retry 8 --retry-delay 20 --max-time 300 \
+            "$stats_url" --output generated-temp-export/stats.json
+
+          line_count=$(wc -l < "$tmp")
+          contact_count=$(awk -F',' 'NR>1 && $1 ~ /CONTACT/ {count++} END {print count+0}' "$tmp")
+          if [[ "$line_count" -lt 3012 || "$contact_count" -lt 3000 ]]; then
+            echo "Validation failed: lines=$line_count contacts=$contact_count"
+            exit 1
+          fi
+          mv "$tmp" "$final"
+          sha256sum "$final" > generated-temp-export/sha256.txt
+          echo "Validated lines=$line_count contacts=$contact_count"
+
+      - name: Commit mirrored export
+        shell: bash
+        run: |
+          git config user.name "chatgpt-temporary-export"
+          git config user.email "actions@users.noreply.github.com"
+          git add generated-temp-export
+          if ! git diff --cached --quiet; then
+            git commit -m "Mirror validated 3000-plus real-estate contact export [skip ci]"
+            git push origin HEAD:temp-final-realtor-export-20260806
+          fi
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: validated-national-real-estate-contact-export
+          path: generated-temp-export/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 9
