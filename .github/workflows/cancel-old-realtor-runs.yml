@@ -1,0 +1,25 @@
+name: Cancel superseded realtor export runs
+
+on:
+  push:
+    branches:
+      - temp-realtor-control-20260807
+    paths:
+      - ".github/workflows/cancel-old-realtor-runs.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel-superseded-runs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel the superseded thorough crawl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST \
+            /repos/${{ github.repository }}/actions/runs/31145527635/cancel || true
+          echo "Requested cancellation for superseded run 31145527635"
