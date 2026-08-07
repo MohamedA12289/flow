@@ -1,0 +1,113 @@
+name: Sharded nationwide real-estate contact export
+
+on:
+  push:
+    branches:
+      - temp-realtor-sharded-20260807
+    paths:
+      - "scripts/realtor_shard_export.py"
+      - "scripts/merge_realtor_shards.py"
+      - ".github/workflows/realtor-sharded-export.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  crawl-shards:
+    name: Crawl shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    steps:
+      - name: Check out temporary research branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp-realtor-sharded-20260807
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install crawler dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Crawl assigned markets
+        run: |
+          python scripts/realtor_shard_export.py \
+            --shard "${{ matrix.shard }}" \
+            --shards 16 \
+            --out "shard_${{ matrix.shard }}.csv"
+
+      - name: Show shard summary
+        if: always()
+        run: |
+          test -f "shard_${{ matrix.shard }}.summary.json" && cat "shard_${{ matrix.shard }}.summary.json" || true
+          test -f "shard_${{ matrix.shard }}.csv" && wc -l -c "shard_${{ matrix.shard }}.csv" || true
+
+      - name: Upload shard artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: realtor-contact-shard-${{ matrix.shard }}
+          path: |
+            shard_${{ matrix.shard }}.csv
+            shard_${{ matrix.shard }}.summary.json
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 9
+
+  merge-shards:
+    name: Merge and rank nationwide contact export
+    needs: crawl-shards
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out temporary research branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp-realtor-sharded-20260807
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download completed shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: realtor-contact-shard-*
+          path: downloaded-shards
+          merge-multiple: true
+
+      - name: Merge, deduplicate, and rank
+        run: |
+          python scripts/merge_realtor_shards.py \
+            --input downloaded-shards \
+            --out nationwide_osm_real_estate_contacts.csv \
+            --summary nationwide_osm_real_estate_contacts_summary.json
+
+      - name: Show nationwide summary
+        run: |
+          cat nationwide_osm_real_estate_contacts_summary.json
+          wc -l -c nationwide_osm_real_estate_contacts.csv
+
+      - name: Upload nationwide merged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nationwide-osm-real-estate-contacts
+          path: |
+            nationwide_osm_real_estate_contacts.csv
+            nationwide_osm_real_estate_contacts_summary.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 9
