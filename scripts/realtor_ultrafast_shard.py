@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -18,40 +19,45 @@ from realtor_shard_export import (
     record_from_element,
 )
 
-PRIMARY_ENDPOINT = "https://overpass.private.coffee/api/interpreter"
-GLOBAL_FALLBACKS = [
+ENDPOINTS = [
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass-api.de/api/interpreter",
-    "https://lz4.overpass-api.de/api/interpreter",
-    "https://z.overpass-api.de/api/interpreter",
 ]
 
 
-def query(region: dict[str, Any], radius_m: int) -> str:
-    lat = region["lat"]
-    lon = region["lon"]
+def bbox(region: dict[str, Any], radius_km: float = 28.0) -> str:
+    lat = float(region["lat"])
+    lon = float(region["lon"])
+    lat_delta = radius_km / 111.0
+    lon_delta = radius_km / max(25.0, 111.0 * math.cos(math.radians(lat)))
+    return f"{lat-lat_delta:.6f},{lon-lon_delta:.6f},{lat+lat_delta:.6f},{lon+lon_delta:.6f}"
+
+
+def query(region: dict[str, Any]) -> str:
+    box = bbox(region)
     c = '[~"^(phone|contact:phone|mobile|contact:mobile|email|contact:email|website|contact:website)$"~"."]'
-    return f'''[out:json][timeout:28];
+    return f'''[out:json][timeout:24];
 (
- nwr["office"~"^(estate_agent|property_management|real_estate_agent|real_estate|estate_management)$"]["name"]{c}(around:{radius_m},{lat},{lon});
- nwr["shop"="estate_agent"]["name"]{c}(around:{radius_m},{lat},{lon});
- nwr["name"~"(Home Buyers|House Buyers|Cash Buyers|We Buy Houses|Real Estate Investments|Property Investors|Acquisitions)",i]{c}(around:{radius_m},{lat},{lon});
+ nwr["office"~"^(estate_agent|property_management|real_estate_agent|real_estate|estate_management)$"]["name"]{c}({box});
+ nwr["shop"="estate_agent"]["name"]{c}({box});
+ nwr["name"~"(Home Buyers|House Buyers|Cash Buyers|We Buy Houses|Real Estate Investments|Property Investors|Acquisitions)",i]{c}({box});
 );
-out center tags 650;'''
+out center tags 800;'''
 
 
 def fetch_region(region: dict[str, Any], shard: int, session: requests.Session):
-    radius = min(int(region["radius_m"]), 48_000)
-    fallback = GLOBAL_FALLBACKS[shard % len(GLOBAL_FALLBACKS)]
-    endpoints = [PRIMARY_ENDPOINT, fallback]
+    endpoints = ENDPOINTS[shard % len(ENDPOINTS):] + ENDPOINTS[: shard % len(ENDPOINTS)]
     errors: list[str] = []
     for endpoint in endpoints:
         try:
             response = session.post(
                 endpoint,
-                data={"data": query(region, radius)},
-                headers={"User-Agent": USER_AGENT},
-                timeout=(7, 42),
+                data={"data": query(region)},
+                headers={
+                    "User-Agent": USER_AGENT,
+                    "Accept": "application/json",
+                },
+                timeout=(6, 32),
             )
             response.raise_for_status()
             payload = response.json()
@@ -85,8 +91,8 @@ def main():
             record = record_from_element(region, element, timestamp, args.shard)
             if not record:
                 continue
-            record["website_fetch_status"] = "not_attempted_ultrafast" if record.get("website") else "no_website"
-            record["research_method"] = "Ultrafast OpenStreetMap public business/contact extraction; official website not reviewed"
+            record["website_fetch_status"] = "not_attempted_ultrafast_bbox" if record.get("website") else "no_website"
+            record["research_method"] = "Ultrafast OpenStreetMap bounding-box public business/contact extraction; official website not reviewed"
             finalize_record(record, 0)
             rows.append(record)
             kept += 1
@@ -124,7 +130,7 @@ def main():
         writer.writerows(rows)
 
     summary = {
-        "pass": "ultrafast-global-endpoints-v2",
+        "pass": "ultrafast-bbox-v3",
         "shard": args.shard,
         "shards": args.shards,
         "regions_assigned": len(selected),
