@@ -1,0 +1,99 @@
+name: ChatGPT temporary nationwide real-estate export runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/chatgpt-temp-realtor-export.yml
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: chatgpt-temp-realtor-export-runner
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  crawl-and-persist-shards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out isolated export branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp-realtor-sharded-20260806
+          fetch-depth: 0
+
+      - name: Stop when every shard already exists
+        id: ready
+        shell: bash
+        run: |
+          missing=0
+          for shard in $(seq -w 0 9); do
+            [[ -s "generated-temp-export/shard_${shard}.csv" ]] || missing=1
+          done
+          echo "missing=${missing}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        if: steps.ready.outputs.missing == '1'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install crawler dependency
+        if: steps.ready.outputs.missing == '1'
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Run and commit incomplete shards
+        if: steps.ready.outputs.missing == '1'
+        shell: bash
+        run: |
+          set -u
+          git config user.name "chatgpt-temporary-export"
+          git config user.email "actions@users.noreply.github.com"
+
+          for shard in $(seq 0 9); do
+            shard2=$(printf '%02d' "$shard")
+            csv_file="generated-temp-export/shard_${shard2}.csv"
+            summary_file="generated-temp-export/shard_${shard2}_summary.json"
+
+            if [[ -s "$csv_file" && -s "$summary_file" ]]; then
+              echo "Shard ${shard2} already exists; skipping."
+              continue
+            fi
+
+            echo "========== STARTING SHARD ${shard2} =========="
+            rm -f "$csv_file" "$summary_file"
+            python scripts/temp_realtor_shard.py \
+              --shard "$shard" \
+              --total-shards 10 \
+              --output-dir generated-temp-export || true
+
+            if [[ -s "$csv_file" && -s "$summary_file" ]]; then
+              cat "$summary_file"
+              wc -l -c "$csv_file"
+              git add "$csv_file" "$summary_file"
+              if ! git diff --cached --quiet; then
+                git commit -m "Add nationwide contact shard ${shard2} [skip ci]"
+                git push origin HEAD:temp-realtor-sharded-20260806
+              fi
+            else
+              echo "Shard ${shard2} did not produce export files; continuing."
+            fi
+          done
+
+      - name: Upload completed shards as a backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nationwide-real-estate-contact-shards
+          path: generated-temp-export/
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 9
