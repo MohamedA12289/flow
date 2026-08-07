@@ -1,0 +1,51 @@
+name: Temporary nationwide real-estate contact export
+
+on:
+  push:
+    branches:
+      - temp-realtor-export-20260806
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  build-contact-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check out temporary branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install crawler dependency
+        run: python -m pip install --disable-pip-version-check requests
+
+      - name: Run nationwide public-data crawler
+        run: python scripts/temp_realtor_export.py
+
+      - name: Show output summary
+        if: always()
+        run: |
+          test -f crawl_summary.json && cat crawl_summary.json || true
+          test -f osm_real_estate_contacts.csv && wc -l -c osm_real_estate_contacts.csv || true
+
+      - name: Upload CSV artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nationwide-real-estate-contact-export
+          path: |
+            osm_real_estate_contacts.csv
+            crawl_summary.json
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 9
