@@ -20,7 +20,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for RUN_ID in 31145527635 31145747108 31146211489; do
+          for RUN_ID in 31145527635 31145747108 31146211489 31146348866; do
             gh api --method POST \
               /repos/${{ github.repository }}/actions/runs/${RUN_ID}/cancel || true
             echo "Requested cancellation for superseded run ${RUN_ID}"
